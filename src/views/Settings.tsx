@@ -1,0 +1,247 @@
+import { useEffect, useState } from 'react';
+import { Activity, FileText, KeyRound, Plug, RotateCcw, Save, SlidersHorizontal, Sparkles, UserRound } from 'lucide-react';
+import type { FormEvent } from 'react';
+import { api } from '../api.ts';
+import PromptsSettings from '../components/PromptsSettings.tsx';
+import ProfilesSettings from '../components/ProfilesSettings.tsx';
+import PersonalitySettings from '../components/PersonalitySettings.tsx';
+import McpSettings from '../components/McpSettings.tsx';
+import type { Personality, Profile, SettingsView, UsageView } from '../../shared/types.ts';
+
+// Token counts read better grouped (1,234,567); cost is OpenRouter's real USD
+// figure, shown to 4 dp so small running totals stay visible (not rounded to $0).
+const fmtTokens = (n: number): string => Math.round(n).toLocaleString();
+const fmtCost = (n: number): string =>
+  '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+
+type Tab = 'general' | 'profiles' | 'personality' | 'tools' | 'prompts';
+
+interface SettingsProps {
+  onChange?: (s: SettingsView) => void;
+  // The shared persona state lives in the app shell so the grid here always
+  // matches the live copilot — no independent fetch that can drift out of sync.
+  personas: Personality[];
+  activePersonaId: string;
+  onPersonaChange: () => Promise<void>;
+  profiles: Profile[];
+  activeProfileId: string | null;
+  onCreateProfile: (name: string) => Promise<void>;
+  onActivateProfile: (id: string) => Promise<void>;
+  onRenameProfile: (id: string, name: string) => Promise<void>;
+  onDeleteProfile: (id: string) => Promise<void>;
+}
+
+// Settings: General (OpenRouter key + models), Profiles (separate memories), and
+// Prompts (editable system prompts). The API key lives on the server; the
+// frontend only ever learns whether one is set.
+export default function Settings({
+  onChange,
+  personas,
+  activePersonaId,
+  onPersonaChange,
+  profiles,
+  activeProfileId,
+  onCreateProfile,
+  onActivateProfile,
+  onRenameProfile,
+  onDeleteProfile
+}: SettingsProps) {
+  // Profiles first — it's the most-used setting (switching whose memory drives resumes).
+  const [tab, setTab] = useState<Tab>('profiles');
+  const [status, setStatus] = useState<SettingsView>({ hasApiKey: false, model: '', model2: '' });
+  const [apiKey, setApiKey] = useState('');
+  const [model, setModel] = useState('');
+  const [model2, setModel2] = useState('');
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
+  // API usage totals (tokens + cost), with a two-step inline reset confirm.
+  const [usage, setUsage] = useState<UsageView | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [usageError, setUsageError] = useState('');
+
+  useEffect(() => {
+    api.getSettings().then((s) => {
+      setStatus(s);
+      setModel(s.model);
+      setModel2(s.model2);
+    });
+    api.getUsage().then(setUsage).catch(() => {});
+  }, []);
+
+  async function resetUsage(): Promise<void> {
+    setUsageError('');
+    try {
+      setUsage(await api.resetUsage());
+      setConfirmReset(false);
+    } catch (e) {
+      setUsageError((e as Error).message);
+    }
+  }
+
+  async function save(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    setError('');
+    setSaved(false);
+    try {
+      const body: { model: string; model2: string; apiKey?: string } = { model, model2 };
+      if (apiKey.trim()) body.apiKey = apiKey.trim();
+      const updated = await api.saveSettings(body);
+      setStatus(updated);
+      setApiKey('');
+      setSaved(true);
+      onChange?.(updated);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  const subtitle =
+    tab === 'general'
+      ? 'Your API key is stored on the server, never sent back to the browser.'
+      : tab === 'profiles'
+        ? 'Each profile keeps its own memory and resumes. Switch the active one here.'
+        : tab === 'personality'
+          ? 'Choose which AI copilot personality drives your chat — or create your own.'
+          : tab === 'tools'
+            ? 'Install MCP servers to give your copilot real tools — research, files, email, and more.'
+            : 'Edit the system prompts that drive your copilot. Changes take effect immediately.';
+
+  return (
+    <div className="pane">
+      <header className="paneHeader">
+        <div className="sessionHead">
+          <div className="paneTitle">Settings</div>
+          <span className="paneSub">{subtitle}</span>
+        </div>
+      </header>
+
+      <div className="settingsLayout">
+        <nav className="settingsNav">
+          <button className={tab === 'profiles' ? 'on' : ''} onClick={() => setTab('profiles')}>
+            <UserRound size={16} /> Profiles
+          </button>
+          <button className={tab === 'personality' ? 'on' : ''} onClick={() => setTab('personality')}>
+            <Sparkles size={16} /> Personality
+          </button>
+          <button className={tab === 'general' ? 'on' : ''} onClick={() => setTab('general')}>
+            <SlidersHorizontal size={16} /> General
+          </button>
+          <button className={tab === 'tools' ? 'on' : ''} onClick={() => setTab('tools')}>
+            <Plug size={16} /> Tools
+          </button>
+          <button className={tab === 'prompts' ? 'on' : ''} onClick={() => setTab('prompts')}>
+            <FileText size={16} /> Prompts
+          </button>
+        </nav>
+
+        <div className="settingsContent">
+        {tab === 'profiles' ? (
+          <ProfilesSettings
+            profiles={profiles}
+            activeProfileId={activeProfileId}
+            onCreate={onCreateProfile}
+            onActivate={onActivateProfile}
+            onRename={onRenameProfile}
+            onDelete={onDeleteProfile}
+          />
+        ) : tab === 'personality' ? (
+          <PersonalitySettings
+            personas={personas}
+            activeId={activePersonaId}
+            onChanged={onPersonaChange}
+          />
+        ) : tab === 'general' ? (
+          <>
+          <form className="settingsForm" onSubmit={save}>
+            {error && <p className="error">{error}</p>}
+            {saved && <p className="ok">Saved.</p>}
+
+            <label>
+              OpenRouter API key
+              <div className="keyField">
+                <KeyRound size={15} />
+                <input
+                  type="password"
+                  value={apiKey}
+                  placeholder={status.hasApiKey ? '•••••••• (set — leave blank to keep)' : 'sk-or-…'}
+                  onChange={(e) => setApiKey(e.target.value)}
+                />
+              </div>
+              <small className={status.hasApiKey ? 'ok' : 'warn'}>
+                {status.hasApiKey ? 'A key is configured.' : 'No key configured — AI features are disabled.'}
+              </small>
+            </label>
+
+            <label>
+              Primary model
+              <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="anthropic/claude-3.7-sonnet" />
+              <small>Used for chat, reading the job, and analysis.</small>
+            </label>
+
+            <label>
+              Advanced model <span className="optional">(optional)</span>
+              <input value={model2} onChange={(e) => setModel2(e.target.value)} placeholder="Leave blank to use the primary model" />
+              <small>A higher-accuracy model used to write the resume and to extract &amp; update memory. Blank → uses the primary model.</small>
+            </label>
+
+            <button type="submit"><Save size={15} /> Save settings</button>
+          </form>
+
+          <section className="usageCard">
+            <div className="usageHead">
+              <div className="usageTitle"><Activity size={15} /> API usage</div>
+              <span className="usageSince">
+                {usage?.updatedAt ? `Last call ${new Date(usage.updatedAt).toLocaleString()}` : 'Nothing tracked yet'}
+              </span>
+            </div>
+            <div className="usageGrid">
+              <div className="usageStat">
+                <span className="usageNum">{fmtCost(usage?.cost ?? 0)}</span>
+                <span className="usageLabel">Total cost</span>
+              </div>
+              <div className="usageStat">
+                <span className="usageNum">{fmtTokens(usage?.totalTokens ?? 0)}</span>
+                <span className="usageLabel">Total tokens</span>
+              </div>
+              <div className="usageStat">
+                <span className="usageNum">{fmtTokens(usage?.requests ?? 0)}</span>
+                <span className="usageLabel">Requests</span>
+              </div>
+            </div>
+            <div className="usageBreakdown">
+              <span>{fmtTokens(usage?.promptTokens ?? 0)} prompt</span>
+              <span className="usageDot">·</span>
+              <span>{fmtTokens(usage?.completionTokens ?? 0)} completion</span>
+            </div>
+            <div className="usageActions">
+              {usageError && <span className="error usageErr">{usageError}</span>}
+              {confirmReset ? (
+                <>
+                  <span className="usageConfirm">Reset totals to zero?</span>
+                  <button type="button" className="ghost" onClick={() => setConfirmReset(false)}>Cancel</button>
+                  <button type="button" className="ghost danger" onClick={() => void resetUsage()}>Reset</button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => { setUsageError(''); setConfirmReset(true); }}
+                  disabled={!usage || usage.requests === 0}
+                >
+                  <RotateCcw size={14} /> Reset
+                </button>
+              )}
+            </div>
+            <p className="usageNote">Cost is the actual amount OpenRouter billed across all calls, including the resume and memory models.</p>
+          </section>
+          </>
+        ) : tab === 'tools' ? (
+          <McpSettings />
+        ) : (
+          <PromptsSettings />
+        )}
+        </div>
+      </div>
+    </div>
+  );
+}

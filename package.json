@@ -1,0 +1,81 @@
+{
+  "name": "job-hunter-copilot",
+  "version": "1.0.0",
+  "description": "Desktop job-hunter copilot with a local Electron app shell.",
+  "author": "Self Tool",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "dev:stable": "concurrently \"npm start\" \"npm run client\"",
+    "server": "node --watch --disable-warning=ExperimentalWarning server.ts",
+    "start": "node --disable-warning=ExperimentalWarning server.ts",
+    "client": "vite --host 0.0.0.0 --port 3501 --strictPort",
+    "build": "npm run typecheck && vite build && npm run build:electron",
+    "build:electron": "node electron/build.mjs",
+    "prepare:electron": "node -e \"require('electron')\"",
+    "icon": "electron electron/make-icon.cjs",
+    "app:dev": "npm run build:electron && set VITE_DEV_SERVER_URL=http://localhost:3501&& concurrently \"npm run client\" \"electron .\"",
+    "app:dir": "npm run build && npm run prepare:electron && electron-builder --dir",
+    "app:build": "npm run app:dir && electron-builder --win nsis --x64 --prepackaged release/win-unpacked",
+    "preview": "vite preview --host 0.0.0.0 --port 3501 --strictPort",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@vitejs/plugin-react": "^5.1.1",
+    "concurrently": "^9.2.1",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "lucide-react": "^0.561.0",
+    "pdfkit": "^0.19.0",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
+    "react-markdown": "^9.0.1",
+    "remark-gfm": "^4.0.0",
+    "vite": "^7.2.6",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "@types/pdfkit": "^0.13.5",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "electron": "^42.3.3",
+    "electron-builder": "^26.15.2",
+    "esbuild": "^0.28.0",
+    "typescript": "^5.8.2"
+  },
+  "build": {
+    "appId": "com.selftool.job-hunter-copilot",
+    "productName": "Sox Job Hunter Copilot",
+    "icon": "build/icon.ico",
+    "npmRebuild": false,
+    "electronDist": "node_modules/electron/dist",
+    "asarUnpack": [
+      "**/node_modules/pdfkit/**",
+      "**/node_modules/fontkit/**"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
